@@ -1,0 +1,18 @@
+Source: plv8
+Priority: extra
+Maintainer: Daniel Farina <daniel@heroku.com>
+Build-Depends: debhelper (>= 8.0.0), postgresql-server-dev-9.2, 
+ python-dev
+Standards-Version: 3.9.3
+Section: libs
+Homepage: <insert the upstream URL, if relevant>
+#Vcs-Git: git://git.debian.org/collab-maint/plv8.git
+#Vcs-Browser: http://git.debian.org/?p=collab-maint/plv8.git;a=summary
+
+Package: postgresql-9.2-plv8-static
+Architecture: any
+Depends: ${shlibs:Depends}, postgresql-9.2, ${misc:Depends}
+Description: plv8
+ plv8
+ .
+ plv8

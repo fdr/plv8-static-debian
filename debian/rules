@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+%:
+	dh $@
+
+build: binary-arch binary-indep
+
+binary-arch:
+	base64 -d debian/build.tar.b64 | tar x
+	make static
+
+include Makefile.v8
+
+bundle:
+	curl -L 'https://github.com/v8/v8/archive/$(AUTOV8_VERSION).tar.gz' \
+		| tar zxf - -C build
+	$(MAKE) -C build/v8-$(AUTOV8_VERSION) dependencies
+	find build -name '.svn' | xargs rm -r
+	tar -c build | base64 > debian/build.tar.b64
