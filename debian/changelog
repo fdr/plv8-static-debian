@@ -1,3 +1,9 @@
+plv8 (1.3.0-1heroku1) precise; urgency=low
+
+  * Fix dependency on 9.2
+
+ -- Daniel Farina <daniel@heroku.com>  Sat, 02 Mar 2013 00:25:41 -0800
+
 plv8 (1.3.0-1heroku0) precise; urgency=low
 
   * Initial release

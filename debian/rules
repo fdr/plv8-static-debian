@@ -8,7 +8,7 @@ build: binary-arch binary-indep
 
 binary-arch:
 	base64 -d debian/build.tar.b64 | tar x
-	make static
+	env PATH=/usr/lib/postgresql/9.2/bin:$(PATH) make static
 
 include Makefile.v8
 
