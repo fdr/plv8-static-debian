@@ -1,3 +1,10 @@
+plv8 (1.3.0-1heroku2) precise; urgency=low
+
+  * Remove Makefile include
+  * Remove non-expanding shlibs:Depends in control
+
+ -- Daniel Farina <daniel@heroku.com>  Mon, 04 Mar 2013 11:46:26 -0800
+
 plv8 (1.3.0-1heroku1) precise; urgency=low
 
   * Fix dependency on 9.2

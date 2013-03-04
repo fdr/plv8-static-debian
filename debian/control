@@ -11,7 +11,7 @@ Homepage: <insert the upstream URL, if relevant>
 
 Package: postgresql-9.2-plv8-static
 Architecture: any
-Depends: ${shlibs:Depends}, postgresql-9.2, ${misc:Depends}
+Depends: postgresql-9.2, ${misc:Depends}
 Description: plv8
  plv8
  .

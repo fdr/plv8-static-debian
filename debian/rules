@@ -10,8 +10,11 @@ binary-arch:
 	base64 -d debian/build.tar.b64 | tar x
 	env PATH=/usr/lib/postgresql/9.2/bin:$(PATH) make static
 
-include Makefile.v8
+# Duplicated from Makefile.v8 for dependency simplicity.
+AUTOV8_VERSION = 3.14.5
 
+# Utility to generate the base64 encoded tarball containing v8 for
+# static linking.
 bundle:
 	curl -L 'https://github.com/v8/v8/archive/$(AUTOV8_VERSION).tar.gz' \
 		| tar zxf - -C build
