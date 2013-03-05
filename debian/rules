@@ -1,6 +1,8 @@
 #!/usr/bin/make -f
 # -*- makefile -*-
 
+DH_VERBOSE=1
+
 %:
 	dh $@
 
@@ -8,7 +10,7 @@ build: binary-arch binary-indep
 
 binary-arch:
 	base64 -d debian/build.tar.b64 | tar x
-	env PATH=/usr/lib/postgresql/9.2/bin:$(PATH) make static
+	$(MAKE) static  PATH=/usr/lib/postgresql/9.2/bin:$(PATH)
 
 # No-op testing, because this requires installcheck; improving this
 # would involve setting up a cluster first.
