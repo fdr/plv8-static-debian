@@ -6,11 +6,11 @@ DH_VERBOSE=1
 %:
 	dh $@
 
-build: binary-arch binary-indep
+build: build-arch build-indep
 
-binary-arch:
+build-arch:
 	base64 -d debian/build.tar.b64 | tar x
-	$(MAKE) static  PATH=/usr/lib/postgresql/9.2/bin:$(PATH)
+	$(MAKE) static PATH=/usr/lib/postgresql/9.2/bin:$(PATH)
 
 # No-op testing, because this requires installcheck; improving this
 # would involve setting up a cluster first.
