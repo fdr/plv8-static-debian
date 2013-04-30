@@ -12,7 +12,7 @@
 #   'make static' will download v8 and build, then statically link to it.
 #
 #-----------------------------------------------------------------------------#
-PLV8_VERSION = 1.3.0
+PLV8_VERSION = 1.4.0
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
@@ -41,7 +41,11 @@ REGRESS = init-extension plv8 inline json startup_pre startup varparam json_conv
 ifndef DISABLE_DIALECT
 REGRESS += dialect
 endif
+
 SHLIB_LINK += -lv8
+ifdef V8_OUTDIR
+SHLIB_LINK += -L$(V8_OUTDIR)
+endif
 
 # v8's remote debugger is optional at the moment, since we don't know
 # how much of the v8 installation is built with debugger enabled.
@@ -50,6 +54,10 @@ OPT_ENABLE_DEBUGGER_SUPPORT = -DENABLE_DEBUGGER_SUPPORT
 endif
 OPTFLAGS = -O2
 CCFLAGS = -Wall $(OPTFLAGS) $(OPT_ENABLE_DEBUGGER_SUPPORT)
+
+ifdef V8_SRCDIR
+override CPPFLAGS += -I$(V8_SRCDIR)/include
+endif
 
 all:
 
@@ -120,9 +128,18 @@ static:
 # available everywhere.  Since this integrity matters only developers,
 # we just check it if they are available.  We may come up with a better
 # solution to have it in one place in the future.
-META_VER := $(shell v8 -e 'print(JSON.parse(read("META.json")).version)' 2>/dev/null)
+META_VER = $(shell v8 -e 'print(JSON.parse(read("META.json")).version)' 2>/dev/null)
 ifndef META_VER
-META_VER := $(shell d8 -e 'print(JSON.parse(read("META.json")).version)' 2>/dev/null)
+META_VER = $(shell d8 -e 'print(JSON.parse(read("META.json")).version)' 2>/dev/null)
+endif
+ifndef META_VER
+META_VER = $(shell lsc -e 'console.log(JSON.parse(require("fs").readFileSync("META.json")).version)' 2>/dev/null)
+endif
+ifndef META_VER
+META_VER = $(shell coffee -e 'console.log(JSON.parse(require("fs").readFileSync("META.json")).version)' 2>/dev/null)
+endif
+ifndef META_VER
+META_VER = $(shell node -e 'console.log(JSON.parse(require("fs").readFileSync("META.json")).version)' 2>/dev/null)
 endif
 
 integritycheck:
@@ -134,7 +151,3 @@ installcheck: integritycheck
 
 .PHONY: subclean integritycheck
 include $(PGXS)
-
-# remove dependency to libxml2 and libxslt (should be after include PGXS)
-LIBS := $(filter-out -lxml2, $(LIBS))
-LIBS := $(filter-out -lxslt, $(LIBS))

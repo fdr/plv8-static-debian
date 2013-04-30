@@ -40,6 +40,7 @@ static Handle<v8::Value> plv8_PlanCursor(const Arguments& args);
 static Handle<v8::Value> plv8_PlanExecute(const Arguments& args);
 static Handle<v8::Value> plv8_PlanFree(const Arguments& args);
 static Handle<v8::Value> plv8_CursorFetch(const Arguments& args);
+static Handle<v8::Value> plv8_CursorMove(const Arguments& args);
 static Handle<v8::Value> plv8_CursorClose(const Arguments& args);
 static Handle<v8::Value> plv8_ReturnNext(const Arguments& args);
 static Handle<v8::Value> plv8_Subtransaction(const Arguments& args);
@@ -88,7 +89,7 @@ quote_literal_cstr(const char *rawstr)
 static inline Local<v8::Value>
 WrapCallback(InvocationCallback func)
 {
-	return External::Wrap(
+	return External::New(
 			reinterpret_cast<void *>(
 				reinterpret_cast<uintptr_t>(func)));
 }
@@ -97,7 +98,7 @@ static inline InvocationCallback
 UnwrapCallback(Handle<v8::Value> value)
 {
 	return reinterpret_cast<InvocationCallback>(
-			reinterpret_cast<uintptr_t>(External::Unwrap(value)));
+			reinterpret_cast<uintptr_t>(External::Cast(*value)->Value()));
 }
 
 static inline void
@@ -165,6 +166,9 @@ SubTranBlock::SubTranBlock()
 void
 SubTranBlock::enter()
 {
+	if (!IsTransactionOrTransactionBlock())
+		throw js_error("out of transaction");
+
 	m_resowner = CurrentResourceOwner;
 	m_mcontext = CurrentMemoryContext;
 	BeginInternalSubTransaction(NULL);
@@ -368,6 +372,7 @@ value_get_datum(Handle<v8::Value> value, Oid typid, char *isnull)
 			datum = ToDatum(value, &IsNull, &typinfo);
 		}
 		catch (js_error& e){ e.rethrow(); }
+		catch (pg_error& e){ e.rethrow(); }
 		*isnull = (IsNull ?  'n' : ' ');
 		return datum;
 	}
@@ -533,11 +538,8 @@ plv8_Prepare(const Arguments &args)
 	}
 
 	Local<v8::Object> result = PlanTemplate->NewInstance();
-	result->SetInternalField(0, External::Wrap(saved));
-#if PG_VERSION_NUM >= 90000
-	if (parstate)
-		result->SetInternalField(1, External::Wrap(parstate));
-#endif
+	result->SetInternalField(0, External::New(saved));
+	result->SetInternalField(1, External::New(parstate));
 
 	return result;
 }
@@ -557,7 +559,8 @@ plv8_PlanCursor(const Arguments &args)
 	Portal				cursor;
 	plv8_param_state   *parstate = NULL;
 
-	plan = static_cast<SPIPlanPtr>(External::Unwrap(self->GetInternalField(0)));
+	plan = static_cast<SPIPlanPtr>(
+			Handle<External>::Cast(self->GetInternalField(0))->Value());
 	/* XXX: Add plan validation */
 
 	if (args.Length() > 0 && args[0]->IsArray())
@@ -570,7 +573,7 @@ plv8_PlanCursor(const Arguments &args)
 	 * If the plan has the variable param info, use it.
 	 */
 	parstate = static_cast<plv8_param_state *>(
-			External::Unwrap(self->GetInternalField(1)));
+			Handle<External>::Cast(self->GetInternalField(1))->Value());
 
 	if (parstate)
 		argcount = parstate->numParams;
@@ -638,6 +641,7 @@ plv8_PlanCursor(const Arguments &args)
 		Local<ObjectTemplate> templ = base->InstanceTemplate();
 		templ->SetInternalFieldCount(1);
 		SetCallback(templ, "fetch", plv8_CursorFetch);
+		SetCallback(templ, "move", plv8_CursorMove);
 		SetCallback(templ, "close", plv8_CursorClose);
 		CursorTemplate = Persistent<ObjectTemplate>::New(templ);
 	}
@@ -664,7 +668,8 @@ plv8_PlanExecute(const Arguments &args)
 	int					status;
 	plv8_param_state   *parstate = NULL;
 
-	plan = static_cast<SPIPlanPtr>(External::Unwrap(self->GetInternalField(0)));
+	plan = static_cast<SPIPlanPtr>(
+			Handle<External>::Cast(self->GetInternalField(0))->Value());
 	/* XXX: Add plan validation */
 
 	if (args.Length() > 0 && args[0]->IsArray())
@@ -676,8 +681,8 @@ plv8_PlanExecute(const Arguments &args)
 	/*
 	 * If the plan has the variable param info, use it.
 	 */
-	parstate = static_cast<plv8_param_state *> (
-			External::Unwrap(self->GetInternalField(1)));
+	parstate = static_cast<plv8_param_state *>(
+			Handle<External>::Cast(self->GetInternalField(1))->Value());
 
 	if (parstate)
 		argcount = parstate->numParams;
@@ -751,19 +756,20 @@ plv8_PlanFree(const Arguments &args)
 	plv8_param_state   *parstate;
 	int					status = 0;
 
-	plan = static_cast<SPIPlanPtr>(External::Unwrap(self->GetInternalField(0)));
+	plan = static_cast<SPIPlanPtr>(
+			Handle<External>::Cast(self->GetInternalField(0))->Value());
 
 	if (plan)
 		status = SPI_freeplan(plan);
 
-	self->SetInternalField(0, External::Wrap(0));
+	self->SetInternalField(0, External::New(0));
 
-	parstate = static_cast<plv8_param_state *> (
-			External::Unwrap(self->GetInternalField(1)));
+	parstate = static_cast<plv8_param_state *>(
+			Handle<External>::Cast(self->GetInternalField(1))->Value());
 
 	if (parstate)
 		pfree(parstate);
-	self->SetInternalField(1, External::Wrap(0));
+	self->SetInternalField(1, External::New(0));
 
 	return Int32::New(status);
 }
@@ -777,19 +783,88 @@ plv8_CursorFetch(const Arguments &args)
 	Handle<v8::Object>	self = args.This();
 	CString				cname(self->GetInternalField(0));
 	Portal				cursor = SPI_cursor_find(cname);
+	int					nfetch = 1;
+	bool				forward = true, wantarray = false;
 
 	if (!cursor)
 		throw js_error("cannot find cursor");
 
-	/* XXX: get the argument */
-	SPI_cursor_fetch(cursor, true, 1);
+	if (args.Length() >= 1)
+	{
+		wantarray = true;
+		nfetch = args[0]->Int32Value();
 
-	if (SPI_processed == 1)
+		if (nfetch < 0)
+		{
+			nfetch = -nfetch;
+			forward = false;
+		}
+	}
+	PG_TRY();
+	{
+		SPI_cursor_fetch(cursor, forward, nfetch);
+	}
+	PG_CATCH();
+	{
+		throw pg_error();
+	}
+	PG_END_TRY();
+
+	if (SPI_processed > 0)
 	{
 		Converter			conv(SPI_tuptable->tupdesc);
-		Handle<v8::Object>	result = conv.ToValue(SPI_tuptable->vals[0]);
-		return result;
+
+		if (!wantarray)
+		{
+			Handle<v8::Object>	result = conv.ToValue(SPI_tuptable->vals[0]);
+			return result;
+		}
+		else
+		{
+			Handle<Array> array = Array::New();
+			for (unsigned int i = 0; i < SPI_processed; i++)
+				array->Set(i, conv.ToValue(SPI_tuptable->vals[i]));
+			return array;
+		}
 	}
+	return Undefined();
+}
+
+/*
+ * cursor.move(n)
+ */
+static Handle<v8::Value>
+plv8_CursorMove(const Arguments& args)
+{
+	Handle<v8::Object>	self = args.This();
+	CString				cname(self->GetInternalField(0));
+	Portal				cursor = SPI_cursor_find(cname);
+	int					nmove = 1;
+	bool				forward = true;
+
+	if (!cursor)
+		throw js_error("cannot find cursor");
+
+	if (args.Length() < 1)
+		return Undefined();
+
+	nmove = args[0]->Int32Value();
+	if (nmove < 0)
+	{
+		nmove = -nmove;
+		forward = false;
+	}
+
+	PG_TRY();
+	{
+		SPI_cursor_move(cursor, forward, nmove);
+	}
+	PG_CATCH();
+	{
+		throw pg_error();
+	}
+	PG_END_TRY();
+
 	return Undefined();
 }
 
@@ -806,7 +881,15 @@ plv8_CursorClose(const Arguments &args)
 	if (!cursor)
 		throw js_error("cannot find cursor");
 
-	SPI_cursor_close(cursor);
+	PG_TRY();
+	{
+		SPI_cursor_close(cursor);
+	}
+	PG_CATCH();
+	{
+		throw pg_error();
+	}
+	PG_END_TRY();
 
 	return Int32::New(cursor ? 1 : 0);
 }
@@ -818,13 +901,16 @@ static Handle<v8::Value>
 plv8_ReturnNext(const Arguments& args)
 {
 	Handle<v8::Object>	self = args.This();
-
-	if (self->GetInternalField(PLV8_INTNL_CONV).IsEmpty())
-		throw js_error("return_next called in context that cannot accept a set");
 	Converter *conv = static_cast<Converter *>(
-			External::Unwrap(self->GetInternalField(PLV8_INTNL_CONV)));
+			Handle<External>::Cast(
+				self->GetInternalField(PLV8_INTNL_CONV))->Value());
+
+	if (conv == NULL)
+		throw js_error("return_next called in context that cannot accept a set");
+
 	Tuplestorestate *tupstore = static_cast<Tuplestorestate *>(
-			External::Unwrap(self->GetInternalField(PLV8_INTNL_TUPSTORE)));
+			Handle<External>::Cast(
+				self->GetInternalField(PLV8_INTNL_TUPSTORE))->Value());
 
 	conv->ToDatum(args[0], tupstore);
 
@@ -892,7 +978,7 @@ plv8_GetWindowObject(const Arguments& args)
 	Handle<v8::Value>	fcinfo_value =
 			self->GetInternalField(PLV8_INTNL_FCINFO);
 
-	if (External::Unwrap(fcinfo_value) == NULL)
+	if (!fcinfo_value->IsExternal())
 		throw js_error("get_window_object called in wrong context");
 
 	if (WindowObjectTemplate.IsEmpty())
@@ -938,13 +1024,12 @@ plv8_MyWindowObject(const Arguments& args)
 {
 	Handle<v8::Object>	self = args.This();
 	/* fcinfo is embedded in the internal field.  See plv8_GetWindowObject() */
-	Handle<v8::Value>	fcinfo_value = self->GetInternalField(0);
+	FunctionCallInfo fcinfo = static_cast<FunctionCallInfo>(
+			Handle<External>::Cast(self->GetInternalField(0))->Value());
 
-	if (fcinfo_value.IsEmpty())
+	if (fcinfo == NULL)
 		throw js_error("window function api called with wrong object");
 
-	FunctionCallInfo fcinfo = static_cast<FunctionCallInfo>(
-			External::Unwrap(fcinfo_value));
 	WindowObject winobj = PG_WINDOW_OBJECT();
 
 	if (!winobj)
@@ -961,13 +1046,11 @@ static inline plv8_type *
 plv8_MyArgType(const Arguments& args, int argno)
 {
 	Handle<v8::Object>	self = args.This();
-	Handle<v8::Value>	fcinfo_value = self->GetInternalField(0);
-
-	if (fcinfo_value.IsEmpty())
-		throw js_error("window function api called with wrong object");
-
 	FunctionCallInfo fcinfo = static_cast<FunctionCallInfo>(
-			External::Unwrap(fcinfo_value));
+			Handle<External>::Cast(self->GetInternalField(0))->Value());
+
+	if (fcinfo == NULL)
+		throw js_error("window function api called with wrong object");
 
 	/* This is safe to call in C++ context (without PG_TRY). */
 	return get_plv8_type(fcinfo, argno);

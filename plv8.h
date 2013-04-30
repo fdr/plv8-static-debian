@@ -118,10 +118,12 @@ private:
 	std::vector< v8::Handle<v8::String> >	m_colnames;
 	std::vector< plv8_type >				m_coltypes;
 	bool									m_is_scalar;
+	MemoryContext							m_memcontext;
 
 public:
 	Converter(TupleDesc tupdesc);
 	Converter(TupleDesc tupdesc, bool is_scalar);
+	~Converter();
 	v8::Local<v8::Object> ToValue(HeapTuple tuple);
 	Datum	ToDatum(v8::Handle<v8::Value> value, Tuplestorestate *tupstore = NULL);
 
@@ -173,7 +175,7 @@ public:
 			/* Stash the current item, just in case of nested call */
 			m_prev_fcinfo = m_plv8obj->GetInternalField(PLV8_INTNL_FCINFO);
 			m_plv8obj->SetInternalField(PLV8_INTNL_FCINFO,
-					v8::External::Wrap(fcinfo));
+					v8::External::New(fcinfo));
 		}
 	}
 	bool IsWindowCall() { return WindowObjectIsValid(m_winobj); }
@@ -210,9 +212,9 @@ public:
 		m_prev_conv = m_plv8obj->GetInternalField(PLV8_INTNL_CONV);
 		m_prev_tupstore = m_plv8obj->GetInternalField(PLV8_INTNL_TUPSTORE);
 		m_plv8obj->SetInternalField(PLV8_INTNL_CONV,
-									v8::External::Wrap(conv));
+									v8::External::New(conv));
 		m_plv8obj->SetInternalField(PLV8_INTNL_TUPSTORE,
-									v8::External::Wrap(tupstore));
+									v8::External::New(tupstore));
 	}
 	~SRFSupport()
 	{
