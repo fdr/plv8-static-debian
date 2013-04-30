@@ -1,3 +1,9 @@
+plv8 (1.4.0-1heroku1) precise; urgency=low
+
+  * New upstream release
+
+ -- Daniel Farina <daniel@heroku.com>  Tue, 30 Apr 2013 11:29:41 -0700
+
 plv8 (1.3.0-1heroku5) precise; urgency=low
 
   * Fix build vs binary thinkos
